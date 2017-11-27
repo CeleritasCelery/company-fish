@@ -1,0 +1,21 @@
+* Company Fish
+This company backend provides completion candidates for ~shell~ and ~eshell~ buffers based on the [[https://fishshell.com/][Fish shell]].
+
+** Installation
+clone this repo and add the following to your ~.emacs~
+#+BEGIN_SRC emacs-lisp
+(when (executable-find "fish")
+  (add-to-list 'company-backends 'company-fish)
+  (add-hook 'shell-mode-hook 'company-mode)
+  (add-hook 'eshell-mode-hook 'company-mode))
+#+END_SRC
+
+** Features
+*** Provides completions for
+- commands
+- command-line options
+
+** Company vs Pcomplete
+There already exists a ~pcomplete~ Fish completion backend ([[https://github.com/Ambrevar/emacs-fish-completion][emacs-fish-completion]]) on which ~company-fish~ was based. You can even use it with company via ~company-capf~. The only thing that this package provides over the pcomplete version is annotations (short descriptions of the candidates). If you don't care about that feature you would be better off using the pcomplete version.
+
+[[file:img/tar-example.png]]
