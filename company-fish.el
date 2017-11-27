@@ -11,13 +11,14 @@
 (defvar company-fish-enabled-modes '(shell-mode eshell-mode) "enabled modes.")
 
 (defun company-fish (command &optional arg &rest ignored)
-  "Complete using pcomplete. See `company's COMMAND ARG and IGNORED for details."
+  "Complete shell commands and options using Fish shell. See `company's COMMAND ARG and IGNORED for details."
   (interactive (list 'interactive))
-  (case command
+  (cl-case command
     (interactive (company-begin-backend 'company-fish))
     (prefix (company-fish--prefix))
     (candidates (company-fish--candidates))
-    (annotation (company-fish--annotation arg))))
+    (annotation (company-fish--annotation arg))
+    (sorted t)))
 
 (defun company-fish--annotation (candidate)
   (-let [annotation (get-text-property 0 'annotation candidate)]
@@ -39,11 +40,10 @@
         prefix))))
 
 (defun company-fish--candidates ()
-  (--map (if (listp it)
-             (-let [(cand . annot) it]
-               (put-text-property 0 1 'annotation annot cand)
-               cand)
-           it)
+  (--map (-let [(cand . annot) it]
+           (when annot
+             (put-text-property 0 1 'annotation annot cand))
+           cand)
          (company-fish--complete (buffer-substring (line-beginning-position) (point)))))
 
 (defun company-fish--complete (raw-prompt)
@@ -70,20 +70,26 @@ cell (candidate . annotation)."
                      ;; Skip env/sudo parameters, like LC_ALL=C.
                      (setq tokens (cdr tokens)))
                    (mapconcat 'identity tokens " ")))
-         (candidates (--map (apply #'-cons* (split-string it "\t"))
+         (candidates (--map (-let [(c a) (split-string it "\t")]
+                              (cons c a))
                             (split-string
                              (with-output-to-string
                                (with-current-buffer standard-output
                                  (call-process company-fish-executable nil t nil "-c" (format "complete -C'%s'" prompt))))
-                             "\n" t))))
-    ;; Fish will return duplicate candidates with different annotations.
-    ;; so we remove them. Generally the first candidates will have
-    ;; the "least descriptive" annotation so reverse the list.
+                             "\n" t)))
+         ;; Fish will return duplicate candidates with different annotations.
+         ;; so we remove them. Generally the first candidates will have
+         ;; the "least descriptive" annotation so reverse the list.
+         (filtered (let ((-compare-fn (-lambda ((lhs) (rhs))
+                                        (s-equals? lhs rhs))))
+                     (-distinct (nreverse candidates)))))
 
-    (let ((-compare-fn (lambda (&rest args)
-                         (apply  #'equal
-                                 (--map (if (listp it) (car it) it)
-                                        args)))))
-      (-distinct (nreverse candidates)))))
+    ;; Sort the candidates so that short options appear first
+    (-sort (-lambda ((lhs) (rhs))
+             (if (eq (s-prefix? "--" lhs)
+                     (s-prefix? "--" rhs))
+                 (s-less? lhs rhs)
+               (s-prefix? "--" rhs)))
+           filtered)))
 
 (provide 'company-fish)
