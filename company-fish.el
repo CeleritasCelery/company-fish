@@ -61,7 +61,8 @@ cell (candidate . annotation)."
          ;; a special case of 'sudo' and 'env' since they are
          ;; the most common cases involving subcommands.  See
          ;; https://github.com/fish-shell/fish-shell/issues/4093.
-         (prompt (if (not (member (car tokens) '("sudo" "env")))
+         (prompt (if (or (eq 1 (length tokens))
+                         (not (member (car tokens) '("sudo" "env"))))
                      raw-prompt
                    (setq tokens (cdr tokens))
                    (while (and tokens
