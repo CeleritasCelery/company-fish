@@ -16,8 +16,9 @@
   (cl-case command
     (interactive (company-begin-backend 'company-fish))
     (prefix (company-fish--prefix))
-    (candidates (company-fish--candidates))
+    (candidates (cons :async (lambda (callback) (company-fish--candidates callback))))
     (annotation (company-fish--annotation arg))
+    (meta (get-text-property 0 'annotation arg))
     (sorted t)))
 
 (defun company-fish--annotation (candidate)
@@ -30,14 +31,9 @@
     (let ((prefix (company-grab-symbol))
           (cmd (buffer-substring
                 (line-beginning-position)
-                (save-excursion
-                  (beginning-of-line)
-                  (skip-syntax-forward "w_")
-                  (point)))))
-      (when (or (s-prefix? "-" prefix) ;; command line option
-                (s-equals? prefix cmd) ;; command or built in
-                (s-prefix? "git" cmd)) ;; git command
-        prefix))))
+                (point))))
+      (cond ((s-prefix? "-" prefix) (cons prefix t)) ;; command line option
+            ((s-equals? prefix cmd) prefix)))));; command
 
 (defun company-fish--candidates ()
   (--map (-let [(cand . annot) it]
@@ -46,17 +42,10 @@
            cand)
          (company-fish--complete (buffer-substring (line-beginning-position) (point)))))
 
-(defun company-fish--complete (raw-prompt)
-  "Complete RAW-PROMPT (any string) using the fish shell.
-Returns a list of candidates as either a string or a cons
-cell (candidate . annotation)."
+(defun company-fish--candidates (callback)
   (let* (;; Keep spaces at the end with OMIT-NULLS=nil in `split-string'.
-         (toks (split-string raw-prompt split-string-default-separators nil))
-         ;; The first non-empty `car' is the command.  Discard
-         ;; leading empty strings.
-         (tokens (progn (while (string= (car toks) "")
-                          (setq toks (cdr toks)))
-                        toks))
+         (raw-prompt (buffer-substring (line-beginning-position) (point)))
+         (tokens (split-string raw-prompt split-string-default-separators nil))
          ;; Fish does not support subcommand completion.  We make
          ;; a special case of 'sudo' and 'env' since they are
          ;; the most common cases involving subcommands.  See
@@ -71,26 +60,35 @@ cell (candidate . annotation)."
                      ;; Skip env/sudo parameters, like LC_ALL=C.
                      (setq tokens (cdr tokens)))
                    (mapconcat 'identity tokens " ")))
-         (candidates (--map (-let [(c a) (split-string it "\t")]
-                              (cons c a))
-                            (split-string
-                             (with-output-to-string
-                               (with-current-buffer standard-output
-                                 (call-process company-fish-executable nil t nil "-c" (format "complete -C'%s'" prompt))))
-                             "\n" t)))
-         ;; Fish will return duplicate candidates with different annotations.
-         ;; so we remove them. Generally the first candidates will have
-         ;; the "least descriptive" annotation so reverse the list.
-         (filtered (let ((-compare-fn (-lambda ((lhs) (rhs))
-                                        (s-equals? lhs rhs))))
-                     (-distinct (nreverse candidates)))))
+         (buffer (generate-new-buffer "fish-candidates")))
+    (set-process-sentinel (start-process  "fish-candidate"
+                                          buffer
+                                          company-fish-executable
+                                          (format "-c complete -C'%s'" prompt))
+                          (lambda (_ event)
+                            (when (s-equals? event "finished\n")
+                              (funcall callback (company-fish--parse buffer)))))))
 
-    ;; Sort the candidates so that short options appear first
-    (-sort (-lambda ((lhs) (rhs))
-             (if (eq (s-prefix? "--" lhs)
-                     (s-prefix? "--" rhs))
-                 (s-less? lhs rhs)
-               (s-prefix? "--" rhs)))
-           filtered)))
+(defun company-fish--parse (buffer)
+  (let ((str (s-trim (with-current-buffer buffer
+                       (buffer-string))))
+        (-compare-fn (-lambda ((lhs) (rhs))
+                       (s-equals? lhs rhs))))
+    (kill-buffer buffer)
+    (when (s-present? str)
+      (->> (s-lines str)
+           (--map (-let [(c a) (split-string it "\t")]
+                    (cons c a)))
+           (nreverse)
+           (-distinct)
+           (-sort (-lambda ((lhs) (rhs))
+                    (if (eq (s-prefix? "--" lhs)
+                            (s-prefix? "--" rhs))
+                        (s-less? lhs rhs)
+                      (s-prefix? "--" rhs))))
+           (--map (-let [(cand . annot) it]
+                    (when annot
+                      (put-text-property 0 1 'annotation annot cand))
+                    cand))))))
 
 (provide 'company-fish)
