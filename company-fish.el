@@ -35,9 +35,19 @@
       (cond ((s-prefix? "-" prefix) (cons prefix t)) ;; command line option
             ((s-equals? prefix cmd) prefix)))));; command
 
+(defun company-fish--bol ()
+  (cl-case major-mode
+    (shell-mode (comint-bol))
+    (eshell-mode (eshell-bol))
+    (otherwise (beginning-of-line))))
+
+(defun company-fish--line-beginning-position ()
+  (save-excursion (company-fish--bol) (point)))
+
 (defun company-fish--candidates (callback)
   (let* (;; Keep spaces at the end with OMIT-NULLS=nil in `split-string'.
-         (raw-prompt (buffer-substring (line-beginning-position) (point)))
+         (raw-prompt (buffer-substring (company-fish--line-beginning-position)
+				       (point)))
          (tokens (split-string raw-prompt split-string-default-separators nil))
          ;; Fish does not support subcommand completion.  We make
          ;; a special case of 'sudo' and 'env' since they are
