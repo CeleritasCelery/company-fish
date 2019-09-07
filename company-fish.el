@@ -35,13 +35,6 @@
       (cond ((s-prefix? "-" prefix) (cons prefix t)) ;; command line option
             ((s-equals? prefix cmd) prefix)))));; command
 
-(defun company-fish--candidates ()
-  (--map (-let [(cand . annot) it]
-           (when annot
-             (put-text-property 0 1 'annotation annot cand))
-           cand)
-         (company-fish--complete (buffer-substring (line-beginning-position) (point)))))
-
 (defun company-fish--candidates (callback)
   (let* (;; Keep spaces at the end with OMIT-NULLS=nil in `split-string'.
          (raw-prompt (buffer-substring (line-beginning-position) (point)))
